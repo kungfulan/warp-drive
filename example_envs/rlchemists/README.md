@@ -14,7 +14,7 @@ This is the source code folder for the research project published on Nature Comm
 2. under the root directory of `rlchemists`, run `bash setenv.sh` to setup the Python path for this project
 
 ## CUDA kernel for environment
-Please contact the authors for the kernel functions as this is not OSS.
+Please contact the [authors](tian.lan@salesforce.com) for the kernel functions. The kernel functions are proprietary and are not yet open sourced for now. The code needs kernel functions to run the GPU mode.
    
 ## run
 We simply choose the environment and type to run a particular training, the supported ones are all included
