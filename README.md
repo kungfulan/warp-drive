@@ -37,7 +37,7 @@ and **train** in just a few **hours**, all on a single GPU!
 
 #  
 
-2. Several more complex environments such as **Covid-19 environment and climate change environment** have been developed based on WarpDrive, you may see examples in [Real-World Problems and Collaborations](#real-world-problems-and-collaborations).
+2. Complex 2-level multi-agent environments such as **Covid-19 environment and climate change environment** have been developed based on WarpDrive, you may see examples in [Real-World Problems and Collaborations](#real-world-problems-and-collaborations).
 
 <img width="800" src="https://github.com/salesforce/warp-drive/assets/31748898/7544ea10-3243-4415-8d50-b4827e4519d2">
 
@@ -48,6 +48,10 @@ and **train** in just a few **hours**, all on a single GPU!
 <img width="600" alt="Screenshot 2023-12-19 at 10 02 51 PM" src="https://github.com/salesforce/warp-drive/assets/31748898/19b5c3b0-fa02-4555-8d95-e34187ea5df9">
 
 #  
+
+4. **Catalytic reaction pathways**: We include environments that convert quantum density functional theory to a reinforcement learning representation and enables an automatic search for the optimal chemical reaction pathway from the noisy chemical system. You may see examples in [Real-World Problems and Collaborations](#real-world-problems-and-collaborations).
+
+<img width="649" alt="Screenshot 2023-09-19 at 10 23 56 AM" src="https://github.com/user-attachments/assets/3c46d054-d5c8-4500-a04f-c6f34abcc5bf">
 
 ## Throughput, Scalability and Convergence
 #### Multi Agent 
@@ -160,6 +164,7 @@ You can find full reference documentation [here](http://opensource.salesforce.co
 ## Real World Problems and Collaborations
 
 - [AI Economist Covid Environment with WarpDrive](https://github.com/salesforce/ai-economist/blob/master/tutorials/multi_agent_gpu_training_with_warp_drive.ipynb): We train two-level multi-agent economic simulations using [AI-Economist Foundation](https://github.com/salesforce/ai-economist) and train it using WarpDrive. We specifically consider the COVID-19 and economy simulation in this example.
+- [High Throughput RL with first principles](https://www.nature.com/articles/s41467-024-50531-6): We convert quantum density functional theory to a reinforcement learning representation and enables an automatic search for the optimal chemical reaction pathway from the noisy chemical system. For more details, please check out our work published at [Nature Communications](https://www.nature.com/articles/s41467-024-50531-6). 
 - [Climate Change Cooperation Competition](https://mila-iqia.github.io/climate-cooperation-competition/) collaborated with [Mila](https://mila.quebec/en/). We provide the base version of the RICE (regional integrated climate environment) [simulation environment](https://github.com/mila-iqia/climate-cooperation-competition).
 - [Pytorch Lightning Trainer with WarpDrive](https://github.com/salesforce/warp-drive/blob/master/tutorials/tutorial-7-training_with_warp_drive_and_pytorch_lightning.ipynb): We provide a [tutorial example](https://pytorch-lightning.readthedocs.io/en/latest/notebooks/lightning_examples/warp-drive.html) and a [blog article](https://devblog.pytorchlightning.ai/turbocharge-multi-agent-reinforcement-learning-with-warpdrive-and-pytorch-lightning-6be9b00a3a43) of a multi-agent reinforcement learning training loop with WarpDrive and [Pytorch Lightning](https://www.pytorchlightning.ai/).
 - [NVIDIA NGC Catalog and Quick Deployment to VertexAI](https://catalog.ngc.nvidia.com/): WarpDrive image is hosted by [NGC Catalog](https://catalog.ngc.nvidia.com/orgs/partners/teams/salesforce/containers/warpdrive). The NGC catalog "hosts containers for the top AI and data science software, tuned, tested and optimized by NVIDIA". Our tutorials also enable the quick deployment to VertexAI supported by the NGC.  
