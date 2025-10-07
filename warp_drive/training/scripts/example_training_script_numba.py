@@ -239,6 +239,9 @@ if __name__ == "__main__":
         "default=-1 (using configure setting)",
     )
     parser.add_argument(
+        "--base_dir", type=str, help="base dir used for saving"
+    )
+    parser.add_argument(
         "--results_dir", type=str, help="name of the directory to save results into."
     )
 
@@ -290,6 +293,10 @@ if __name__ == "__main__":
                 run_config["trainer"]["num_gpus"] = num_gpus_available
     elif "num_gpus" not in run_config["trainer"]:
         run_config["trainer"]["num_gpus"] = 1
+
+    if args.base_dir is not None:
+        # overwrite the default base dir in the config
+        run_config["saving"]["basedir"] = args.base_dir
 
     if args.results_dir is not None:
         results_dir = args.results_dir
