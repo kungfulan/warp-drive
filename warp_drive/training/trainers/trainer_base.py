@@ -116,6 +116,7 @@ class TrainerBase:
             verbose:
                 if False, training metrics are not printed to the screen.
                 Defaults to True.
+
         """
         assert env_wrapper is not None
         assert not env_wrapper.env_backend == "cpu"
@@ -383,6 +384,18 @@ class TrainerBase:
     def _generate_rollout_batch(self):
         """
         Generate an environment rollout batch.
+
+        S_j -> push to training batch -> RLModel(S_j) -> probability -> sample
+        a_j -> Environment -> S_j+1, r_j+1, d_j+1 -> push a_j, r_j+1, d_j+1 to training batch
+
+        For a trainig batch, it looks like this:
+        here V(S_j) is the expected *future* return evaluated at time step j.
+
+        S_0, a_0, r_1, d_1, probability(S_0), V(S_0)
+        S_1, a_1, r_2, d_2, probability(S_1), V(S_1)
+        S_2, a_2, r_3, d_3, probability(S_2), V(S_2)
+        ...
+
         """
         # Code timing
         start_event = torch.cuda.Event(enable_timing=True)
