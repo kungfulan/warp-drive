@@ -158,8 +158,36 @@ class TrainerA2C(TrainerBase):
 
     def _evaluate_policies(self, batch_index=0):
         """
-        Perform the policy evaluation (forward pass through the models)
-        and compute action probabilities
+        1. Perform the policy evaluation (forward pass through the models)
+        and compute action probabilities. Each probability is generated
+        by the corresponding policy model.
+
+        2. Combine the probabilities across policies if there are multiple policies.
+
+        if `create_separate_placeholders_for_each_policy is False`, then action
+        will share the one placeholder to store them. The action sampler will
+        then need to run just once on each action type, but this requires a proper
+        stacking so probabilities from all policies can be combined.
+
+        For example, originally there are two policies, "runner" and "tagger",
+        note that for each policy, the probability space is a list of size
+        n_actions.
+        For each action type of n_actions, it is an array of shape[env, agent, action_dim],
+        this is compatible with the policy head of the model.
+
+        probabilities = {
+            "runner": [n_actions, shape[env, agent_runner, action_dim]]
+            "tagger": [n_actions, shape[env, agent_tagger, action_dim]]
+        }
+
+        The combination requires that all policies have the same n_actions,
+        then it could combine them along n_actions
+
+        For each action_type, agent = agent_runner + agent_tagger
+        So eventually it got:
+
+        probabilities = {"_Combined": [n_actions, shape[env, agent, action_dim]]}
+
         """
         assert isinstance(batch_index, int)
         probabilities = {}
@@ -197,8 +225,15 @@ class TrainerA2C(TrainerBase):
             num_agents = self.cuda_envs.env.num_agents
 
             combined_probabilities = [None for _ in range(num_action_types)]
+
             for action_type_id in range(num_action_types):
-                action_dim = probabilities[first_policy][action_type_id].shape[-1]
+                # Assert that for the same action_type_id, all policies are of
+                # the same action_dim
+                num_action_dims = {}
+                for policy in probabilities.keys():
+                    num_action_dims[policy] = probabilities[policy][action_type_id].shape[-1]
+                assert all_equal(list(num_action_dims.values()))
+                action_dim = num_action_dims[first_policy]
                 combined_probabilities[action_type_id] = torch.zeros(
                     (num_envs, num_agents, action_dim)
                 ).cuda()
