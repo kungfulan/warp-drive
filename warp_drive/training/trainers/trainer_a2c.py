@@ -225,11 +225,6 @@ class TrainerA2C(TrainerBase):
             num_agents = self.cuda_envs.env.num_agents
 
             combined_probabilities = [None for _ in range(num_action_types)]
-            # for action_type_id in range(num_action_types):
-            #     action_dim = probabilities[first_policy][action_type_id].shape[-1]
-            #     combined_probabilities[action_type_id] = torch.zeros(
-            #         (num_envs, num_agents, action_dim)
-            #     ).cuda()
 
             for action_type_id in range(num_action_types):
                 # Assert that for the same action_type_id, all policies are of
