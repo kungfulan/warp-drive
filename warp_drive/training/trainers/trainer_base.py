@@ -699,7 +699,7 @@ class TrainerBase:
         if self.verbose:
             verbose_print("Trainer exits gracefully", self.device_id)
 
-    def fetch_episode_states(
+    def fetch_episode_states_single_env(
         self,
         list_of_states=None,  # list of states (data array names) to fetch
         env_id=0,  # environment id to fetch the states from
@@ -801,6 +801,130 @@ class TrainerBase:
             return episode_states, episode_actions, episode_rewards
         elif include_rewards_actions and include_probabilities:
             return episode_states, episode_actions, episode_rewards, episode_probabilities
+        else:
+            return episode_states
+
+    def fetch_episode_states_multiple_envs(
+        self,
+        list_of_states=None,  # list of states (data array names) to fetch
+        env_ids=None,  # environment ids to fetch the states from
+        include_rewards_actions=False,  # flag to output reward and action
+        policy="",  # if include_rewards_actions=True, the corresponding policy tag if any
+        **sample_params
+    ):
+        """
+        Step through many envs and fetch the desired states (data arrays on the GPU)
+        for an entire episode. The trained models will be used for evaluation.
+        """
+        env_ids = np.arange(self.num_envs) if env_ids is None else np.atleast_1d(env_ids)
+        env_ids = np.asarray(env_ids, dtype=int)
+        assert np.all((env_ids >= 0) & (env_ids < self.num_envs)), "env_ids out of range"
+        env_ids = np.unique(env_ids)
+        num_envs = len(env_ids)
+
+        env_id_to_index_map = {eid: i for i, eid in enumerate(env_ids)}
+
+        def _get_env_indices(env_ids):
+            indices = []
+            for eid in env_ids:
+                indices.append(env_id_to_index_map[eid])
+            return indices
+
+        if list_of_states is None:
+            list_of_states = []
+        assert isinstance(list_of_states, list)
+
+        logging.info(f"Fetching the episode states: {list_of_states} from the GPU.")
+        # Ensure env is reset before the start of training, and done flags are False
+        self.cuda_envs.reset_all_envs()
+        env = self.cuda_envs.env
+
+        episode_states = {}
+        for state in list_of_states:
+            assert self.cuda_envs.cuda_data_manager.is_data_on_device(
+                state
+            ), f"{state} is not a valid array name on the GPU!"
+            array_shape = (num_envs, ) + self.cuda_envs.cuda_data_manager.get_shape(state)[1:]
+
+            # Initialize the episode states
+            episode_states[state] = np.full(
+                (
+                    env.episode_length + 1, *array_shape
+                ),
+                np.nan
+            )
+
+        if include_rewards_actions:
+            policy_suffix = f"_{policy}" if len(policy) > 0 else ""
+            action_name = _ACTIONS + policy_suffix
+            reward_name = _REWARDS + policy_suffix
+            # Note the size is 1 step smaller than states because we do not have r_0 and a_T
+            episode_actions = np.zeros(
+                (
+                    env.episode_length, num_envs, *self.cuda_envs.cuda_data_manager.get_shape(action_name)[1:]
+                ),
+                dtype=self.cuda_envs.cuda_data_manager.get_dtype(action_name)
+            )
+            episode_rewards = np.zeros(
+                (
+                    env.episode_length, num_envs, *self.cuda_envs.cuda_data_manager.get_shape(reward_name)[1:]
+                ),
+                dtype=np.float32)
+
+        undone_env_ids = env_ids
+
+        for timestep in range(env.episode_length):
+            # Update the episode states s_t
+
+            undone_env_indices = _get_env_indices(undone_env_ids)
+
+            for state in list_of_states:
+                episode_states[state][
+                    timestep
+                ][undone_env_indices] = self.cuda_envs.cuda_data_manager.pull_data_from_device(state)[
+                    undone_env_ids
+                ]
+            # Evaluate policies to compute action probabilities, we set batch_index=-1 to avoid batch writing
+            probabilities = self._evaluate_policies(batch_index=-1)
+
+            # Sample actions, we set batch_index=-1 to avoid batch writing
+            self._sample_actions(probabilities, batch_index=-1, **sample_params)
+
+            # Step through all the environments
+            self.cuda_envs.step_all_envs()
+
+            if include_rewards_actions:
+                # Update the episode action a_t
+                episode_actions[timestep][undone_env_indices] = \
+                    self.cuda_envs.cuda_data_manager.pull_data_from_device(action_name)[undone_env_ids]
+                # Update the episode reward r_(t+1)
+                episode_rewards[timestep][undone_env_indices] = \
+                    self.cuda_envs.cuda_data_manager.pull_data_from_device(reward_name)[undone_env_ids]
+
+            undone_flags = (
+                self.cuda_envs.cuda_data_manager.data_on_device_via_torch("_done_")[undone_env_ids] == 0
+            ).cpu().numpy()
+            undone_env_ids = undone_env_ids[undone_flags]
+            # the following done_env_ids are just turning from undone to done
+            # then we update the final state
+            done_env_ids = undone_env_ids[~undone_flags]
+            done_env_indices = _get_env_indices(done_env_ids)
+            if done_env_ids:
+                for state in list_of_states:
+                    episode_states[state][
+                        timestep + 1
+                        ][done_env_indices] = self.cuda_envs.cuda_data_manager.pull_data_from_device(state)[
+                        done_env_ids
+                    ]
+
+            if not undone_flags.any():
+                break
+            # Reset all the environments that are in done state after we bookkeep the done environments
+            # do not undo done anymore because we just need one episode
+            self.cuda_envs.reset_only_done_envs(undo_done_after_reset=False)
+
+        if include_rewards_actions:
+            return episode_states, episode_actions, episode_rewards
         else:
             return episode_states
 
