@@ -83,6 +83,7 @@ class TrainerBase:
         device_id=0,
         results_dir=None,
         verbose=True,
+        inference_mode=False,
     ):
         """
         Args:
@@ -116,6 +117,9 @@ class TrainerBase:
             verbose:
                 if False, training metrics are not printed to the screen.
                 Defaults to True.
+            inference_mode:
+                if True, the class is for training, we can optimize the initialization
+                so some steps could be ignored and memory could be saved.
 
         """
         assert env_wrapper is not None
@@ -245,6 +249,7 @@ class TrainerBase:
             create_separate_placeholders_for_each_policy=self.create_separate_placeholders_for_each_policy,
             obs_dim_corresponding_to_num_agents=self.obs_dim_corresponding_to_num_agents,
             training_batch_size_per_env=self.training_batch_size_per_env + self.n_step - 1,
+            push_data_batch_placeholders=not inference_mode,
         )
         # Seeding (device_id is included for distributed training)
         seed = (
@@ -855,7 +860,7 @@ class TrainerBase:
             )
 
         if include_rewards_actions:
-            policy_suffix = f"_{policy}" if len(policy) > 0 else ""
+            policy_suffix = f"_{policy}" if policy and len(policy) > 0 else ""
             action_name = _ACTIONS + policy_suffix
             reward_name = _REWARDS + policy_suffix
             # Note the size is 1 step smaller than states because we do not have r_0 and a_T

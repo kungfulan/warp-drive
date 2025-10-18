@@ -1,0 +1,19 @@
+# Copyright (c) 2021, salesforce.com, inc.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+# For full license text, see the LICENSE file in the repo root
+# or https://opensource.org/licenses/BSD-3-Clause
+
+name: "single_cartpole"
+# Environment settings
+env:
+    episode_length: 500
+# Trainer settings
+trainer:
+    num_envs: 100 # number of environment replicas
+# Policy network settings
+policy: # list all the policies below
+    shared:
+        model: # policy model settings
+            model_ckpt_filepath: "" # filepath (used to restore a previously saved model)
+
