@@ -262,6 +262,7 @@ if __name__ == "__main__":
         raise ValueError(
             "Invalid environment specified! The environment name should "
             "match the name of the yaml file in training/run_configs/."
+            f"You gave {config_path}"
         )
 
     with open(config_path, "r", encoding="utf8") as fp:
