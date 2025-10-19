@@ -943,11 +943,12 @@ class TrainerBase:
             undone_flags = (
                 self.cuda_envs.cuda_data_manager.data_on_device_via_torch("_done_")[undone_env_ids] == 0
             ).cpu().numpy()
-            undone_env_ids = undone_env_ids[undone_flags]
             # the following done_env_ids are just turning from undone to done
             # then we update the final state
             done_env_ids = undone_env_ids[~undone_flags]
             done_env_indices = _get_env_indices(done_env_ids)
+            # update the undone for the next iteration
+            undone_env_ids = undone_env_ids[undone_flags]
             if done_env_ids:
                 for state in list_of_states:
                     episode_states_map[state][
