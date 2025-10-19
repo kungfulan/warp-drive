@@ -7,10 +7,10 @@
 name: "single_cartpole"
 # Environment settings
 env:
-    episode_length: 500
+    episode_length: 100
 # Trainer settings
 trainer:
-    num_envs: 100 # number of environment replicas
+    num_envs: 3 # number of environment replicas
 # Policy network settings
 policy: # list all the policies below
     shared:
