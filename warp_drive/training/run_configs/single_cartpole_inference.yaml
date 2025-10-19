@@ -15,5 +15,5 @@ trainer:
 policy: # list all the policies below
     shared:
         model: # policy model settings
-            model_ckpt_filepath: "" # filepath (used to restore a previously saved model)
+            model_ckpt_filepath: "/global/homes/e/emerald/experiments/single_cartpole/single_cartpole/experiments/1760899951/shared_100000000.state_dict" # filepath (used to restore a previously saved model)
 
