@@ -946,10 +946,10 @@ class TrainerBase:
             # the following done_env_ids are just turning from undone to done
             # then we update the final state
             done_env_ids = undone_env_ids[~undone_flags]
-            done_env_indices = _get_env_indices(done_env_ids)
             # update the undone for the next iteration
             undone_env_ids = undone_env_ids[undone_flags]
-            if done_env_ids:
+            if done_env_ids.any():
+                done_env_indices = _get_env_indices(done_env_ids)
                 for state in list_of_states:
                     episode_states_map[state][
                         timestep + 1
