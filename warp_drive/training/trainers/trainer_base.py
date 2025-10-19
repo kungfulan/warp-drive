@@ -814,7 +814,6 @@ class TrainerBase:
         list_of_states=None,  # list of states (data array names) to fetch
         env_ids=None,  # environment ids to fetch the states from
         include_rewards_actions=False,  # flag to output reward and action
-        policy="",  # if include_rewards_actions=True, the corresponding policy tag if any
         **sample_params
     ):
         """
@@ -844,7 +843,7 @@ class TrainerBase:
         self.cuda_envs.reset_all_envs()
         env = self.cuda_envs.env
 
-        episode_states = {}
+        episode_states_map = {}
         for state in list_of_states:
             assert self.cuda_envs.cuda_data_manager.is_data_on_device(
                 state
@@ -852,7 +851,7 @@ class TrainerBase:
             array_shape = (num_envs, ) + self.cuda_envs.cuda_data_manager.get_shape(state)[1:]
 
             # Initialize the episode states
-            episode_states[state] = np.full(
+            episode_states_map[state] = np.full(
                 (
                     env.episode_length + 1, *array_shape
                 ),
@@ -860,21 +859,43 @@ class TrainerBase:
             )
 
         if include_rewards_actions:
-            policy_suffix = f"_{policy}" if policy and len(policy) > 0 else ""
-            action_name = _ACTIONS + policy_suffix
-            reward_name = _REWARDS + policy_suffix
-            # Note the size is 1 step smaller than states because we do not have r_0 and a_T
-            episode_actions = np.zeros(
-                (
-                    env.episode_length, num_envs, *self.cuda_envs.cuda_data_manager.get_shape(action_name)[1:]
-                ),
-                dtype=self.cuda_envs.cuda_data_manager.get_dtype(action_name)
-            )
-            episode_rewards = np.zeros(
-                (
-                    env.episode_length, num_envs, *self.cuda_envs.cuda_data_manager.get_shape(reward_name)[1:]
-                ),
-                dtype=np.float32)
+            episode_actions_map = {}
+            episode_rewards_map = {}
+            if self.create_separate_placeholders_for_each_policy:
+                for policy in self.policies:
+                    # Sample each individual policy
+                    policy_suffix = f"_{policy}"
+                    action_name = _ACTIONS + policy_suffix
+                    reward_name = _REWARDS + policy_suffix
+                    # Note the size is 1 step smaller than states because we do not have r_0 and a_T
+                    episode_actions = np.zeros(
+                        (
+                            env.episode_length, num_envs, *self.cuda_envs.cuda_data_manager.get_shape(action_name)[1:]
+                        ),
+                        dtype=self.cuda_envs.cuda_data_manager.get_dtype(action_name)
+                    )
+                    episode_rewards_map[policy] = episode_actions
+                    episode_rewards = np.zeros(
+                        (
+                            env.episode_length, num_envs, *self.cuda_envs.cuda_data_manager.get_shape(reward_name)[1:]
+                        ),
+                        dtype=np.float32)
+                    episode_rewards_map[policy] = episode_rewards
+
+            else:
+                action_name = _ACTIONS
+                reward_name = _REWARDS
+                episode_actions = np.zeros(
+                    (
+                        env.episode_length, num_envs, *self.cuda_envs.cuda_data_manager.get_shape(action_name)[1:]
+                    ),
+                    dtype=self.cuda_envs.cuda_data_manager.get_dtype(action_name)
+                )
+                episode_rewards = np.zeros(
+                    (
+                        env.episode_length, num_envs, *self.cuda_envs.cuda_data_manager.get_shape(reward_name)[1:]
+                    ),
+                    dtype=np.float32)
 
         undone_env_ids = env_ids
 
@@ -884,7 +905,7 @@ class TrainerBase:
             undone_env_indices = _get_env_indices(undone_env_ids)
 
             for state in list_of_states:
-                episode_states[state][
+                episode_states_map[state][
                     timestep
                 ][undone_env_indices] = self.cuda_envs.cuda_data_manager.pull_data_from_device(state)[
                     undone_env_ids
@@ -899,12 +920,25 @@ class TrainerBase:
             self.cuda_envs.step_all_envs()
 
             if include_rewards_actions:
-                # Update the episode action a_t
-                episode_actions[timestep][undone_env_indices] = \
-                    self.cuda_envs.cuda_data_manager.pull_data_from_device(action_name)[undone_env_ids]
-                # Update the episode reward r_(t+1)
-                episode_rewards[timestep][undone_env_indices] = \
-                    self.cuda_envs.cuda_data_manager.pull_data_from_device(reward_name)[undone_env_ids]
+                if self.create_separate_placeholders_for_each_policy:
+                    for policy in self.policies:
+                        policy_suffix = f"_{policy}"
+                        action_name = _ACTIONS + policy_suffix
+                        reward_name = _REWARDS + policy_suffix
+                        # Update the episode action a_t
+                        episode_actions_map[policy][timestep][undone_env_indices] = \
+                            self.cuda_envs.cuda_data_manager.pull_data_from_device(action_name)[undone_env_ids]
+                        # Update the episode reward r_(t+1)
+                        episode_rewards_map[policy][timestep][undone_env_indices] = \
+                            self.cuda_envs.cuda_data_manager.pull_data_from_device(reward_name)[undone_env_ids]
+                else:
+                    # we will collect actions and rewards for all policies at once from a single data array
+                    action_name = _ACTIONS
+                    reward_name = _REWARDS
+                    episode_actions[timestep][undone_env_indices] = \
+                        self.cuda_envs.cuda_data_manager.pull_data_from_device(action_name)[undone_env_ids]
+                    episode_rewards[timestep][undone_env_indices] = \
+                        self.cuda_envs.cuda_data_manager.pull_data_from_device(reward_name)[undone_env_ids]
 
             undone_flags = (
                 self.cuda_envs.cuda_data_manager.data_on_device_via_torch("_done_")[undone_env_ids] == 0
@@ -916,7 +950,7 @@ class TrainerBase:
             done_env_indices = _get_env_indices(done_env_ids)
             if done_env_ids:
                 for state in list_of_states:
-                    episode_states[state][
+                    episode_states_map[state][
                         timestep + 1
                         ][done_env_indices] = self.cuda_envs.cuda_data_manager.pull_data_from_device(state)[
                         done_env_ids
@@ -928,10 +962,24 @@ class TrainerBase:
             # do not undo done anymore because we just need one episode
             self.cuda_envs.reset_only_done_envs(undo_done_after_reset=False)
 
+        # Now we completed the episode recording, there is one last thing to remember
+        # if we are not creating separate placeholders but there are multiple policies
+        # we need to separate them for final bookkeeping
+
+        if include_rewards_actions and not self.create_separate_placeholders_for_each_policy:
+            for policy in self.policies:
+                if len(self.policies) > 1:
+                    agent_ids_for_policy = self.policy_tag_to_agent_id_map[policy]
+                    episode_actions_map[policy] = episode_actions[:, :, agent_ids_for_policy]
+                    episode_rewards_map[policy] = episode_rewards[:, :, agent_ids_for_policy]
+                else:
+                    episode_actions_map[policy] = episode_actions
+                    episode_rewards_map[policy] = episode_rewards
+
         if include_rewards_actions:
-            return episode_states, episode_actions, episode_rewards
+            return episode_states_map, episode_actions_map, episode_rewards_map
         else:
-            return episode_states
+            return episode_states_map
 
     def evaluate_episodes(
         self,

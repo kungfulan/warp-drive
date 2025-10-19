@@ -88,7 +88,6 @@ def merge_yaml(base_path: str, override_path: str) -> dict:
 def setup_trainer_and_infer(
     run_configuration,
     list_of_states,
-    policy="",
     use_argmax=True,
     device_id=0,
     num_devices=1,
@@ -223,6 +222,7 @@ def setup_trainer_and_infer(
             device_id=device_id,
             num_devices=num_devices,
             verbose=verbose,
+            inference_mode=True,
         )
     else:
         trainer = TrainerA2C(
@@ -232,24 +232,31 @@ def setup_trainer_and_infer(
             device_id=device_id,
             num_devices=num_devices,
             verbose=verbose,
+            inference_mode=True,
         )
 
     # Perform training
     # ----------------
-    episode_states, episode_actions, episode_rewards = \
+    episode_states_map, episode_actions_map, episode_rewards_map = \
         trainer.fetch_episode_states_multiple_envs(
         list_of_states=list_of_states,
         include_rewards_actions=True,
-        policy=policy,
         use_argmax=use_argmax,
     )
     if not os.path.isdir(output_path):
         os.makedirs(output_path, exist_ok=True)
     np.savez_compressed(
-        f"{output_path}/inference_data_{policy}.npz",
-        episode_actions=episode_actions,
-        episode_rewards=episode_rewards,
-        **episode_states)
+        f"{output_path}/inference_data_states.npz",
+        **episode_states_map,
+    )
+    np.savez_compressed(
+        f"{output_path}/inference_data_actions.npz",
+        **episode_actions_map,
+    )
+    np.savez_compressed(
+        f"{output_path}/inference_data_rewards.npz",
+        **episode_rewards_map,
+    )
 
     trainer.graceful_close()
     perf_stats = trainer.perf_stats
@@ -281,19 +288,13 @@ if __name__ == "__main__":
         help="comma-separated list of state names for inference"
     )
     parser.add_argument(
-        "--policy",
-        type=string,
-        default=None,
-        help="policy for inference"
-    )
-    parser.add_argument(
         "--use_argmax",
         type=bool,
         default=True,
         help="greedy way for inference"
     )
     parser.add_argument(
-        "output_path",
+        "--output_path",
         type=str,
         help="the inference output path"
     )
@@ -336,7 +337,6 @@ if __name__ == "__main__":
     setup_trainer_and_infer(
         run_config,
         list_of_states=args.states,
-        policy=args.policy,
         use_argmax=args.use_argmax,
         output_path=args.output_path,
     )

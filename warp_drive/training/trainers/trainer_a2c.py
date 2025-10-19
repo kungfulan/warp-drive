@@ -52,6 +52,7 @@ class TrainerA2C(TrainerBase):
         device_id=0,
         results_dir=None,
         verbose=True,
+        inference_mode=False,
     ):
         # Define models, optimizers, and learning rate schedules
         self.models = {}
@@ -68,6 +69,7 @@ class TrainerA2C(TrainerBase):
             device_id=device_id,
             results_dir=results_dir,
             verbose=verbose,
+            inference_mode=inference_mode,
         )
 
     def _initialize_policy_algorithm(self, policy):
