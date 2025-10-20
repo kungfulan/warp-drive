@@ -238,7 +238,7 @@ def setup_trainer_and_infer(
 
     # Perform training
     # ----------------
-    episode_states_map, episode_actions_map, episode_rewards_map = \
+    episode_states_map, episode_actions_map, episode_rewards_map, episode_dones = \
         trainer.fetch_episode_states_multiple_envs(
         list_of_states=list_of_states,
         include_rewards_actions=True,
@@ -257,6 +257,10 @@ def setup_trainer_and_infer(
     np.savez_compressed(
         f"{output_path}/inference_data_rewards.npz",
         **episode_rewards_map,
+    )
+    np.savez_compressed(
+        f"{output_path}/inference_data_dones.npz",
+        episode_dones=episode_dones,
     )
 
     trainer.graceful_close()

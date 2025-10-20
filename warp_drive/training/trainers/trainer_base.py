@@ -704,111 +704,6 @@ class TrainerBase:
         if self.verbose:
             verbose_print("Trainer exits gracefully", self.device_id)
 
-    def fetch_episode_states_single_env(
-        self,
-        list_of_states=None,  # list of states (data array names) to fetch
-        env_id=0,  # environment id to fetch the states from
-        include_rewards_actions=False,  # flag to output reward and action
-        include_probabilities=False,  # flag to output action probability
-        policy="",  # if include_rewards_actions=True, the corresponding policy tag if any
-        **sample_params
-    ):
-        """
-        Step through an env and fetch the desired states (data arrays on the GPU)
-        for an entire episode. The trained models will be used for evaluation.
-        """
-        assert 0 <= env_id < self.num_envs
-        if list_of_states is None:
-            list_of_states = []
-        assert isinstance(list_of_states, list)
-
-        logging.info(f"Fetching the episode states: {list_of_states} from the GPU.")
-        # Ensure env is reset before the start of training, and done flags are False
-        self.cuda_envs.reset_all_envs()
-        env = self.cuda_envs.env
-
-        episode_states = {}
-        for state in list_of_states:
-            assert self.cuda_envs.cuda_data_manager.is_data_on_device(
-                state
-            ), f"{state} is not a valid array name on the GPU!"
-            # Note: Discard the first dimension, which is the env dimension
-            array_shape = self.cuda_envs.cuda_data_manager.get_shape(state)[1:]
-
-            # Initialize the episode states
-            episode_states[state] = np.nan * np.stack(
-                [np.ones(array_shape) for _ in range(env.episode_length + 1)]
-            )
-
-        if include_rewards_actions:
-            policy_suffix = f"_{policy}" if len(policy) > 0 else ""
-            action_name = _ACTIONS + policy_suffix
-            reward_name = _REWARDS + policy_suffix
-            # Note the size is 1 step smaller than states because we do not have r_0 and a_T
-            episode_actions = np.zeros(
-                (
-                    env.episode_length, *self.cuda_envs.cuda_data_manager.get_shape(action_name)[1:]
-                ),
-                dtype=self.cuda_envs.cuda_data_manager.get_dtype(action_name)
-            )
-            episode_rewards = np.zeros(
-                (
-                    env.episode_length, *self.cuda_envs.cuda_data_manager.get_shape(reward_name)[1:]
-                ),
-                dtype=np.float32)
-
-        if include_probabilities:
-            episode_probabilities = {}
-
-        for timestep in range(env.episode_length):
-            # Update the episode states s_t
-            for state in list_of_states:
-                episode_states[state][
-                    timestep
-                ] = self.cuda_envs.cuda_data_manager.pull_data_from_device(state)[
-                    env_id
-                ]
-            # Evaluate policies to compute action probabilities, we set batch_index=-1 to avoid batch writing
-            probabilities = self._evaluate_policies(batch_index=-1)
-
-            # Sample actions, we set batch_index=-1 to avoid batch writing
-            self._sample_actions(probabilities, batch_index=-1, **sample_params)
-
-            # Step through all the environments
-            self.cuda_envs.step_all_envs()
-
-            if include_rewards_actions:
-                # Update the episode action a_t
-                episode_actions[timestep] = \
-                    self.cuda_envs.cuda_data_manager.pull_data_from_device(action_name)[env_id]
-                # Update the episode reward r_(t+1)
-                episode_rewards[timestep] = \
-                    self.cuda_envs.cuda_data_manager.pull_data_from_device(reward_name)[env_id]
-            if include_probabilities:
-                # Update the episode action probability p_t
-                if len(policy) > 0:
-                    probs = {policy: [p[env_id].detach().cpu().numpy() for p in probabilities[policy]]}
-                else:
-                    probs = {}
-                    for policy, value in probabilities.items():
-                        probs[policy] = [v[env_id].detach().cpu().numpy() for v in value]
-                episode_probabilities[timestep] = probs
-            # Fetch the states when episode is complete
-            if env.cuda_data_manager.pull_data_from_device("_done_")[env_id]:
-                for state in list_of_states:
-                    episode_states[state][
-                        timestep + 1
-                    ] = self.cuda_envs.cuda_data_manager.pull_data_from_device(state)[
-                        env_id
-                    ]
-                break
-        if include_rewards_actions and not include_probabilities:
-            return episode_states, episode_actions, episode_rewards
-        elif include_rewards_actions and include_probabilities:
-            return episode_states, episode_actions, episode_rewards, episode_probabilities
-        else:
-            return episode_states
-
     def fetch_episode_states_multiple_envs(
         self,
         list_of_states=None,  # list of states (data array names) to fetch
@@ -857,6 +752,13 @@ class TrainerBase:
                 ),
                 np.nan
             )
+
+        episode_dones = np.ones(
+            (
+                env.episode_length, num_envs
+            ),
+            dtype=self.cuda_envs.cuda_data_manager.get_dtype("_done_")
+        )
 
         if include_rewards_actions:
             episode_actions_map = {}
@@ -940,6 +842,8 @@ class TrainerBase:
                     episode_rewards[timestep][undone_env_indices] = \
                         self.cuda_envs.cuda_data_manager.pull_data_from_device(reward_name)[undone_env_ids]
 
+            episode_dones[timestep] = self.cuda_envs.cuda_data_manager.pull_data_from_device("_done_")
+
             undone_flags = (
                 self.cuda_envs.cuda_data_manager.data_on_device_via_torch("_done_")[undone_env_ids] == 0
             ).cpu().numpy()
@@ -978,9 +882,9 @@ class TrainerBase:
                     episode_rewards_map[policy] = episode_rewards
 
         if include_rewards_actions:
-            return episode_states_map, episode_actions_map, episode_rewards_map
+            return episode_states_map, episode_actions_map, episode_rewards_map, episode_dones
         else:
-            return episode_states_map
+            return episode_states_map, episode_dones
 
     def evaluate_episodes(
         self,
