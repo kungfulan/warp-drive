@@ -294,9 +294,8 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--use_argmax",
-        type=bool,
-        default=True,
-        help="greedy way for inference"
+        action="store_true",
+        help="greedy way (default) for inference"
     )
     parser.add_argument(
         "--output_path",
