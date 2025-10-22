@@ -63,6 +63,7 @@ class TrainerDDPG(TrainerBase):
         device_id=0,
         results_dir=None,
         verbose=True,
+        inference_mode=False,
     ):
         # Define models, optimizers, and learning rate schedules
         self.actor_models = {}
@@ -85,6 +86,7 @@ class TrainerDDPG(TrainerBase):
             device_id=device_id,
             results_dir=results_dir,
             verbose=verbose,
+            inference_mode=inference_mode,
         )
         self._init_ring_buffer()
 

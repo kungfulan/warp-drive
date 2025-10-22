@@ -12,8 +12,8 @@ import argparse
 import logging
 import os
 import sys
-import time
 
+import numpy as np
 import torch
 import yaml
 
@@ -51,13 +51,49 @@ _CLASSIC_CONTROL_PENDULUM = "single_pendulum"
 # >> python warp_drive/training/example_training_script.py -e tag_gridworld
 # >> python warp_drive/training/example_training_script.py --env tag_continuous
 
+def recursive_update(base: dict, override: dict) -> dict:
+    """Recursively update nested dicts."""
+    for k, v in override.items():
+        if (
+            k in base
+            and isinstance(base[k], dict)
+            and isinstance(v, dict)
+        ):
+            recursive_update(base[k], v)
+        else:
+            base[k] = v
+    return base
 
-def setup_trainer_and_train(
+
+def merge_yaml(base_path: str, override_path: str) -> dict:
+    """
+    Merge two YAML files: base and override.
+
+    Args:
+        base_path: path to base YAML file.
+        override_path: path to override YAML file.
+
+    Returns:
+        merged (dict): merged configuration dictionary.
+    """
+    with open(base_path, "r", encoding="utf8") as f:
+        base_cfg = yaml.safe_load(f) or {}
+    with open(override_path, "r", encoding="utf8") as f:
+        override_cfg = yaml.safe_load(f) or {}
+
+    merged = recursive_update(base_cfg, override_cfg)
+
+    return merged
+
+
+def setup_trainer_and_infer(
     run_configuration,
+    list_of_states,
+    use_argmax=True,
     device_id=0,
     num_devices=1,
     event_messenger=None,
-    results_directory=None,
+    output_path=None,
     verbose=True,
 ):
     """
@@ -186,8 +222,8 @@ def setup_trainer_and_train(
             policy_tag_to_agent_id_map=policy_tag_to_agent_id_map,
             device_id=device_id,
             num_devices=num_devices,
-            results_dir=results_directory,
             verbose=verbose,
+            inference_mode=True,
         )
     else:
         trainer = TrainerA2C(
@@ -196,16 +232,39 @@ def setup_trainer_and_train(
             policy_tag_to_agent_id_map=policy_tag_to_agent_id_map,
             device_id=device_id,
             num_devices=num_devices,
-            results_dir=results_directory,
             verbose=verbose,
+            inference_mode=True,
         )
 
     # Perform training
     # ----------------
-    trainer.train()
+    episode_states_map, episode_actions_map, episode_rewards_map, episode_dones = \
+        trainer.fetch_episode_states_multiple_envs(
+        list_of_states=list_of_states,
+        include_rewards_actions=True,
+        use_argmax=use_argmax,
+    )
+    if not os.path.isdir(output_path):
+        os.makedirs(output_path, exist_ok=True)
+    np.savez_compressed(
+        f"{output_path}/inference_data_states.npz",
+        **episode_states_map,
+    )
+    np.savez_compressed(
+        f"{output_path}/inference_data_actions.npz",
+        **episode_actions_map,
+    )
+    np.savez_compressed(
+        f"{output_path}/inference_data_rewards.npz",
+        **episode_rewards_map,
+    )
+    np.savez_compressed(
+        f"{output_path}/inference_data_dones.npz",
+        episode_dones=episode_dones,
+    )
+
     trainer.graceful_close()
     perf_stats = trainer.perf_stats
-    print(f"Training steps/s: {perf_stats.steps / perf_stats.total_time:.2f}. \n")
 
 
 if __name__ == "__main__":
@@ -221,28 +280,27 @@ if __name__ == "__main__":
         "--env",
         "-e",
         type=str,
-        help="the environment to train. This also refers to the"
+        help="the environment to infer. This also refers to the"
         "yaml file name in run_configs/.",
     )
     parser.add_argument(
-        "--auto_scale",
-        "-a",
+        "--inference_config_path",
+        type=str,
+    )
+    parser.add_argument(
+        "--states",
+        type=lambda s: s.split(","),
+        help="comma-separated list of state names for inference"
+    )
+    parser.add_argument(
+        "--use_argmax",
         action="store_true",
-        help="perform auto scaling.",
+        help="greedy way (default) for inference"
     )
     parser.add_argument(
-        "--num_gpus",
-        "-n",
-        type=int,
-        default=-1,
-        help="the number of GPU devices for (horizontal) scaling, "
-        "default=-1 (using configure setting)",
-    )
-    parser.add_argument(
-        "--base_dir", type=str, help="base dir used for saving"
-    )
-    parser.add_argument(
-        "--results_dir", type=str, help="name of the directory to save results into."
+        "--output_path",
+        type=str,
+        help="the inference output path"
     )
 
     args = parser.parse_args()
@@ -258,54 +316,31 @@ if __name__ == "__main__":
     config_path = os.path.join(
         _ROOT_DIR, "warp_drive", "training", "run_configs", f"{args.env}.yaml"
     )
+    if args.inference_config_path:
+        inference_path = args.inference_config_path
+    else:
+        inference_path = os.path.join(
+            _ROOT_DIR, "warp_drive", "training", "run_configs", f"{args.env}_inference.yaml"
+        )
+    assert args.output_path is not None, "The output path is not specified"
+
     if not os.path.exists(config_path):
         raise ValueError(
             "Invalid environment specified! The environment name should "
             "match the name of the yaml file in training/run_configs/."
-            f"You gave {config_path}"
+        )
+    if not os.path.exists(inference_path):
+        raise ValueError(
+            "Invalid inference specified! The environment name should "
+            "match the name of the yaml file in training/run_configs/."
         )
 
-    with open(config_path, "r", encoding="utf8") as fp:
-        run_config = yaml.safe_load(fp)
-
-    if args.auto_scale:
-        # Automatic scaling
-        print("Performing Auto Scaling!\n")
-        # First, perform vertical scaling.
-        run_config = perform_auto_vertical_scaling(setup_trainer_and_train, run_config)
-        # Next, perform horizontal scaling.
-        # Set `num_gpus` to the maximum number of GPUs available
-        run_config["trainer"]["num_gpus"] = num_gpus_available
-        print(f"We will be using {num_gpus_available} GPU(s) for training.")
-    elif args.num_gpus >= 1:
-        # Set the appropriate num_gpus configuration parameter
-        if args.num_gpus <= num_gpus_available:
-            print(f"We have successfully found {args.num_gpus} GPUs!")
-            run_config["trainer"]["num_gpus"] = args.num_gpus
-        else:
-            print(
-                f"You requested for {args.num_gpus} GPUs, but we were only able to "
-                f"find {num_gpus_available} GPU(s)! \nDo you wish to continue? [Y/n]"
-            )
-            if input() != "Y":
-                print("Terminating program.")
-                sys.exit()
-            else:
-                run_config["trainer"]["num_gpus"] = num_gpus_available
-    elif "num_gpus" not in run_config["trainer"]:
-        run_config["trainer"]["num_gpus"] = 1
-
-    if args.base_dir is not None:
-        # overwrite the default base dir in the config
-        run_config["saving"]["basedir"] = args.base_dir
-
-    if args.results_dir is not None:
-        results_dir = args.results_dir
-    else:
-        results_dir = f"{time.time():10.0f}"
-
-    print(f"Training with {run_config['trainer']['num_gpus']} GPU(s).")
-    if run_config["trainer"]["num_gpus"] > 1:
-        perform_distributed_training(setup_trainer_and_train, run_config, results_dir)
-    else:
-        setup_trainer_and_train(run_config, results_directory=results_dir)
+    run_config = merge_yaml(base_path=config_path, override_path=inference_path)
+    run_config["trainer"]["num_gpus"] = 1
+    print(f"Inference with {run_config['trainer']['num_gpus']} GPU(s).")
+    setup_trainer_and_infer(
+        run_config,
+        list_of_states=args.states,
+        use_argmax=args.use_argmax,
+        output_path=args.output_path,
+    )
