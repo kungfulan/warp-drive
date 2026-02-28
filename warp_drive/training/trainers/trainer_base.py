@@ -255,6 +255,7 @@ class TrainerBase:
         seed = (
             self.config["trainer"].get("seed", np.int32(time.time())) + self.device_id
         )
+        seed = int(seed)
         self.cuda_sample_controller.init_random(seed)
         torch.manual_seed(seed)
         random.seed(seed)
