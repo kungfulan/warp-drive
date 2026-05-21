@@ -296,6 +296,10 @@ class TrainerA2C(TrainerBase):
             )
             # Update the timestep
             self.current_timestep[policy] += self.training_batch_size
+            grad_norm = 0.0
+            lr = self.lr_schedules[policy].get_param_value(
+                self.current_timestep[policy]
+            )
             # Loss and metrics computation
             loss, metrics = self.trainers[policy].compute_loss_and_metrics(
                 self.current_timestep[policy],
@@ -308,28 +312,25 @@ class TrainerA2C(TrainerBase):
                 negative_positive_ratio=self.neg_pos_env_ratio
             )
             # Compute the gradient norm
-            grad_norm = 0.0
-            for param in list(
-                filter(lambda p: p.grad is not None, self.models[policy].parameters())
-            ):
-                grad_norm += param.grad.data.norm(2).item()
+            if loss is not None:
+                for param in list(
+                    filter(lambda p: p.grad is not None, self.models[policy].parameters())
+                ):
+                    grad_norm += param.grad.data.norm(2).item()
 
-            # Update learning rate based on the schedule
-            lr = self.lr_schedules[policy].get_param_value(
-                self.current_timestep[policy]
-            )
-            for param_group in self.optimizers[policy].param_groups:
-                param_group["lr"] = lr
+                for param_group in self.optimizers[policy].param_groups:
+                    param_group["lr"] = lr
 
-            # Loss backpropagation and optimization step
-            self.optimizers[policy].zero_grad()
-            loss.backward()
-            if self.clip_grad_norm[policy]:
-                nn.utils.clip_grad_norm_(
-                    self.models[policy].parameters(), self.max_grad_norm[policy]
-                )
+                # Loss backpropagation and optimization step
+                self.optimizers[policy].zero_grad()
+                loss.backward()
+                if self.clip_grad_norm[policy]:
+                    nn.utils.clip_grad_norm_(
+                        self.models[policy].parameters(), self.max_grad_norm[policy]
+                    )
 
-            self.optimizers[policy].step()
+                self.optimizers[policy].step()
+            
             # Logging
             if logging_flag:
                 metrics_dict[policy] = metrics
