@@ -58,6 +58,18 @@ class A2C:
         if negative_positive_ratio > 0:
             pos_env_ids, neg_env_ids, need_downsample = \
                 self._sample_positive_negative_env_ids(done_flags_batch, negative_positive_ratio)
+            
+            if len(pos_env_ids) == 0:
+                # if in the positive samples training mode, then skip training if no positive samples are found
+                loss = None
+                if perform_logging:
+                    metrics = {
+                        "No of Positive Examples": 0, 
+                        "Skip Training": True
+                    }
+                else:
+                    metrics = {}
+                return loss, metrics
 
             if need_downsample:
                 selected_env_ids = pos_env_ids + neg_env_ids
